@@ -266,7 +266,15 @@ footer strong {
   .forecast-grid {
     grid-template-columns: 1fr;
   }
-
+  .loading {
+    max-width: 700px;
+    margin: 18px auto 0;
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: #eef4ff;
+    color: #3867d6;
+    font-weight: 600;
+  }
   footer {
     flex-direction: column;
     gap: 8px;

@@ -5,94 +5,8 @@ function App() {
   const [location, setLocation] = useState("");
   const [weather, setWeather] = useState(null);
   const [error, setError] = useState("");
-
-  const searchWeather = async () => {
-    if (!location.trim()) {
-      setError("Please enter a location.");
-      return;
-    }
-
-    setError("");
-    setWeather(null);
-
-    try {
-      const geoResponse = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-          location
-        )}&count=1&language=en&format=json`
-      );
-
-      if (!geoResponse.ok) {
-        throw new Error("Location service failed.");
-      }
-
-      const geoData = await geoResponse.json();
-
-      if (!geoData.results || geoData.results.length === 0) {
-        setError("Location not found. Please try another city.");
-        return;
-      }
-
-      const place = geoData.results[0];
-
-      const weatherResponse = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`
-      );
-
-      if (!weatherResponse.ok) {
-        throw new Error("Weather service failed.");
-      }
-
-      const weatherData = await weatherResponse.json();
-
-      setWeather({
-        place,
-        data: weatherData,
-      });
-    } catch (err) {
-      setError("Unable to retrieve weather data. Please try again.");
-    }
-  };
-
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-
-        try {
-          const response = await fetch(
-            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`
-          );
-
-          if (!response.ok) {
-            throw new Error();
-          }
-
-          const data = await response.json();
-
-          setError("");
-          setWeather({
-            place: {
-              name: "Your Current Location",
-              latitude,
-              longitude,
-            },
-            data,
-          });
-        } catch {
-          setError("Unable to retrieve weather for your location.");
-        }
-      },
-      () => {
-        setError("Location permission was denied.");
-      }
-    );
-  };
+  const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
 
   const getWeatherDescription = (code) => {
     const weatherCodes = {
@@ -126,12 +40,124 @@ function App() {
     if (code === 0) return "☀️";
     if ([1, 2].includes(code)) return "🌤️";
     if ([3, 45, 48].includes(code)) return "☁️";
-    if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code))
+    if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) {
       return "🌧️";
+    }
     if ([71, 73, 75].includes(code)) return "❄️";
     if ([95, 96, 99].includes(code)) return "⛈️";
 
     return "🌡️";
+  };
+
+  const searchWeather = async () => {
+    if (!location.trim()) {
+      setError("Please enter a location.");
+      setWeather(null);
+      return;
+    }
+
+    setError("");
+    setWeather(null);
+    setLoading(true);
+
+    try {
+      const geoResponse = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+          location.trim()
+        )}&count=1&language=en&format=json`
+      );
+
+      if (!geoResponse.ok) {
+        throw new Error("LOCATION_SERVICE_ERROR");
+      }
+
+      const geoData = await geoResponse.json();
+
+      if (!geoData.results || geoData.results.length === 0) {
+        setError("Location not found. Please try another city or town.");
+        return;
+      }
+
+      const place = geoData.results[0];
+
+      const weatherResponse = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`
+      );
+
+      if (!weatherResponse.ok) {
+        throw new Error("WEATHER_SERVICE_ERROR");
+      }
+
+      const weatherData = await weatherResponse.json();
+
+      setWeather({
+        place,
+        data: weatherData,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(
+        "Unable to retrieve weather data right now. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    setError("");
+    setWeather(null);
+    setLocationLoading(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+
+        try {
+          const response = await fetch(
+            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`
+          );
+
+          if (!response.ok) {
+            throw new Error("CURRENT_LOCATION_WEATHER_ERROR");
+          }
+
+          const data = await response.json();
+
+          setWeather({
+            place: {
+              name: "Your Current Location",
+              latitude,
+              longitude,
+            },
+            data,
+          });
+        } catch (err) {
+          console.error(err);
+          setError("Unable to retrieve weather for your location.");
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        console.error(error);
+
+        if (error.code === error.PERMISSION_DENIED) {
+          setError(
+            "Location permission was denied. Please allow location access and try again."
+          );
+        } else {
+          setError("Unable to determine your current location.");
+        }
+
+        setLocationLoading(false);
+      }
+    );
   };
 
   return (
@@ -139,11 +165,15 @@ function App() {
       <section className="hero">
         <p className="eyebrow">WEATHER INTELLIGENCE</p>
 
-        <h1>Know the weather.<br />Plan smarter.</h1>
+        <h1>
+          Know the weather.
+          <br />
+          Plan smarter.
+        </h1>
 
         <p className="subtitle">
-          Get real-time weather conditions and a 5-day forecast
-          for any location.
+          Get real-time weather conditions and a 5-day forecast for any
+          location.
         </p>
 
         <div className="search-area">
@@ -157,16 +187,36 @@ function App() {
                 searchWeather();
               }
             }}
+            disabled={loading || locationLoading}
           />
 
-          <button onClick={searchWeather}>
-            Search
+          <button
+            onClick={searchWeather}
+            disabled={loading || locationLoading}
+          >
+            {loading ? "Searching..." : "Search"}
           </button>
 
-          <button className="location-button" onClick={useCurrentLocation}>
-            📍 Use My Location
+          <button
+            className="location-button"
+            onClick={useCurrentLocation}
+            disabled={loading || locationLoading}
+          >
+            {locationLoading ? "Finding you..." : "📍 Use My Location"}
           </button>
         </div>
+
+        {loading && (
+          <div className="loading">
+            Fetching real-time weather data...
+          </div>
+        )}
+
+        {locationLoading && (
+          <div className="loading">
+            Requesting your current location...
+          </div>
+        )}
 
         {error && <div className="error">{error}</div>}
       </section>
