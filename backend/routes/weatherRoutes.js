@@ -1,11 +1,17 @@
 const express = require("express");
 const db = require("../database/database");
 
+const {
+  findLocation,
+  getWeatherForecast,
+  validateDateRange,
+} = require("../services/weatherService");
+
 const router = express.Router();
 
-// ================================
-// READ - Get all weather records
-// ================================
+// =====================================
+// READ - Get all saved weather records
+// =====================================
 router.get("/", (req, res) => {
   try {
     const records = db
@@ -24,9 +30,9 @@ router.get("/", (req, res) => {
   }
 });
 
-// =================================
-// READ - Get one weather record
-// =================================
+// =====================================
+// READ - Get one saved weather record
+// =====================================
 router.get("/:id", (req, res) => {
   try {
     const record = db
@@ -51,67 +57,76 @@ router.get("/:id", (req, res) => {
   }
 });
 
-// =================================
-// CREATE - Save weather record
-// =================================
-router.post("/", (req, res) => {
+// =====================================
+// CREATE - Search real weather + save
+// =====================================
+router.post("/", async (req, res) => {
   try {
     const {
       location,
-      latitude,
-      longitude,
       start_date,
       end_date,
-      weather_data,
     } = req.body;
 
-    // Required-field validation
-    if (
-      !location ||
-      latitude === undefined ||
-      longitude === undefined ||
-      !start_date ||
-      !end_date ||
-      weather_data === undefined
-    ) {
+    // -----------------------------
+    // Validate location
+    // -----------------------------
+    if (!location || !location.trim()) {
       return res.status(400).json({
-        error: "All weather record fields are required.",
+        error: "Location is required.",
       });
     }
 
-    // Date validation
-    const startDate = new Date(start_date);
-    const endDate = new Date(end_date);
+    // -----------------------------
+    // Validate date range
+    // -----------------------------
+    const dateValidation = validateDateRange(
+      start_date,
+      end_date
+    );
 
-    if (
-      Number.isNaN(startDate.getTime()) ||
-      Number.isNaN(endDate.getTime())
-    ) {
+    if (!dateValidation.valid) {
       return res.status(400).json({
-        error: "Invalid date format.",
+        error: dateValidation.message,
       });
     }
 
-    if (startDate > endDate) {
-      return res.status(400).json({
-        error: "Start date cannot be after end date.",
+    // -----------------------------
+    // Find actual location
+    // -----------------------------
+    let place;
+
+    try {
+      place = await findLocation(location.trim());
+    } catch (error) {
+      return res.status(404).json({
+        error: "Location not found.",
       });
     }
 
-    // Coordinate validation
-    if (
-      typeof latitude !== "number" ||
-      typeof longitude !== "number" ||
-      latitude < -90 ||
-      latitude > 90 ||
-      longitude < -180 ||
-      longitude > 180
-    ) {
-      return res.status(400).json({
-        error: "Invalid latitude or longitude.",
+    // -----------------------------
+    // Retrieve real weather
+    // -----------------------------
+    let weatherData;
+
+    try {
+      weatherData = await getWeatherForecast(
+        place.latitude,
+        place.longitude,
+        start_date,
+        end_date
+      );
+    } catch (error) {
+      console.error("Weather API error:", error);
+
+      return res.status(502).json({
+        error: "Unable to retrieve weather data.",
       });
     }
 
+    // -----------------------------
+    // Save to SQLite
+    // -----------------------------
     const insert = db.prepare(`
       INSERT INTO weather_records (
         location,
@@ -125,14 +140,20 @@ router.post("/", (req, res) => {
     `);
 
     const result = insert.run(
-      location.trim(),
-      latitude,
-      longitude,
+      `${place.name}, ${place.country || ""}`.replace(
+        /,\s*$/,
+        ""
+      ),
+      place.latitude,
+      place.longitude,
       start_date,
       end_date,
-      JSON.stringify(weather_data)
+      JSON.stringify(weatherData)
     );
 
+    // -----------------------------
+    // Return saved record
+    // -----------------------------
     const newRecord = db
       .prepare(
         "SELECT * FROM weather_records WHERE id = ?"
@@ -140,21 +161,21 @@ router.post("/", (req, res) => {
       .get(result.lastInsertRowid);
 
     res.status(201).json({
-      message: "Weather record created successfully.",
+      message: "Weather data retrieved and saved successfully.",
       record: newRecord,
     });
   } catch (error) {
     console.error("CREATE error:", error);
 
     res.status(500).json({
-      error: "Failed to save weather record.",
+      error: "Failed to process weather request.",
     });
   }
 });
 
-// =================================
-// UPDATE - Update weather record
-// =================================
+// =====================================
+// UPDATE - Update saved record
+// =====================================
 router.put("/:id", (req, res) => {
   try {
     const existingRecord = db
@@ -192,22 +213,14 @@ router.put("/:id", (req, res) => {
         ? weather_data
         : JSON.parse(existingRecord.weather_data);
 
-    // Validate dates
-    const startDate = new Date(updatedStartDate);
-    const endDate = new Date(updatedEndDate);
+    const dateValidation = validateDateRange(
+      updatedStartDate,
+      updatedEndDate
+    );
 
-    if (
-      Number.isNaN(startDate.getTime()) ||
-      Number.isNaN(endDate.getTime())
-    ) {
+    if (!dateValidation.valid) {
       return res.status(400).json({
-        error: "Invalid date format.",
-      });
-    }
-
-    if (startDate > endDate) {
-      return res.status(400).json({
-        error: "Start date cannot be after end date.",
+        error: dateValidation.message,
       });
     }
 
@@ -253,9 +266,9 @@ router.put("/:id", (req, res) => {
   }
 });
 
-// =================================
-// DELETE - Delete weather record
-// =================================
+// =====================================
+// DELETE - Delete saved record
+// =====================================
 router.delete("/:id", (req, res) => {
   try {
     const result = db
