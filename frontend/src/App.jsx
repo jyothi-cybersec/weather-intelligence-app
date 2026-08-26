@@ -1,15 +1,30 @@
 import { useState } from "react";
 import "./App.css";
+import AdminDashboard from "./AdminDashboard";
+
+const API_URL = "http://localhost:5000/api";
 
 function App() {
   const [location, setLocation] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
   const [weather, setWeather] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
 
+  // Owner state
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminToken, setAdminToken] = useState("");
+  const [adminUsername, setAdminUsername] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [adminLoading, setAdminLoading] = useState(false);
+
   const getWeatherDescription = (code) => {
-    const weatherCodes = {
+    const codes = {
       0: "Clear sky",
       1: "Mainly clear",
       2: "Partly cloudy",
@@ -33,76 +48,100 @@ function App() {
       99: "Thunderstorm with hail",
     };
 
-    return weatherCodes[code] || "Unknown conditions";
+    return codes[code] || "Unknown conditions";
   };
 
   const getWeatherIcon = (code) => {
     if (code === 0) return "☀️";
     if ([1, 2].includes(code)) return "🌤️";
     if ([3, 45, 48].includes(code)) return "☁️";
-    if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) {
+
+    if (
+      [51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)
+    ) {
       return "🌧️";
     }
+
     if ([71, 73, 75].includes(code)) return "❄️";
     if ([95, 96, 99].includes(code)) return "⛈️";
 
     return "🌡️";
   };
 
+  // ==========================================
+  // WEATHER SEARCH
+  // ==========================================
+
   const searchWeather = async () => {
+    setError("");
+    setWeather(null);
+
     if (!location.trim()) {
       setError("Please enter a location.");
-      setWeather(null);
       return;
     }
 
-    setError("");
-    setWeather(null);
+    if (!startDate || !endDate) {
+      setError("Please select both dates.");
+      return;
+    }
+
+    if (new Date(startDate) > new Date(endDate)) {
+      setError("Start date cannot be after end date.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const geoResponse = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-          location.trim()
-        )}&count=1&language=en&format=json`
-      );
+      const response = await fetch(`${API_URL}/weather`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          location: location.trim(),
+          start_date: startDate,
+          end_date: endDate,
+        }),
+      });
 
-      if (!geoResponse.ok) {
-        throw new Error("LOCATION_SERVICE_ERROR");
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || "Unable to retrieve weather data."
+        );
       }
 
-      const geoData = await geoResponse.json();
-
-      if (!geoData.results || geoData.results.length === 0) {
-        setError("Location not found. Please try another city or town.");
-        return;
-      }
-
-      const place = geoData.results[0];
-
-      const weatherResponse = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`
-      );
-
-      if (!weatherResponse.ok) {
-        throw new Error("WEATHER_SERVICE_ERROR");
-      }
-
-      const weatherData = await weatherResponse.json();
+      const record = result.record;
+      const weatherData = JSON.parse(record.weather_data);
 
       setWeather({
-        place,
+        recordId: record.id,
+        place: {
+          name: record.location,
+          latitude: record.latitude,
+          longitude: record.longitude,
+        },
         data: weatherData,
+        startDate: record.start_date,
+        endDate: record.end_date,
       });
     } catch (err) {
       console.error(err);
       setError(
-        "Unable to retrieve weather data right now. Please try again."
+        err.message ||
+          "Unable to retrieve weather data right now."
       );
     } finally {
       setLoading(false);
     }
   };
+
+  // ==========================================
+  // CURRENT LOCATION
+  // ==========================================
 
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -124,7 +163,9 @@ function App() {
           );
 
           if (!response.ok) {
-            throw new Error("CURRENT_LOCATION_WEATHER_ERROR");
+            throw new Error(
+              "Unable to retrieve weather for your location."
+            );
           }
 
           const data = await response.json();
@@ -139,26 +180,90 @@ function App() {
           });
         } catch (err) {
           console.error(err);
-          setError("Unable to retrieve weather for your location.");
+          setError(
+            "Unable to retrieve weather for your current location."
+          );
         } finally {
           setLocationLoading(false);
         }
       },
-      (error) => {
-        console.error(error);
+      (geoError) => {
+        console.error(geoError);
 
-        if (error.code === error.PERMISSION_DENIED) {
+        if (geoError.code === geoError.PERMISSION_DENIED) {
           setError(
             "Location permission was denied. Please allow location access and try again."
           );
         } else {
-          setError("Unable to determine your current location.");
+          setError(
+            "Unable to determine your current location."
+          );
         }
 
         setLocationLoading(false);
       }
     );
   };
+
+  // ==========================================
+  // OWNER LOGIN
+  // ==========================================
+
+  const adminLogin = async () => {
+    setAdminError("");
+    setAdminLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/admin/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: adminUsername,
+          password: adminPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Invalid owner credentials."
+        );
+      }
+
+      setAdminToken(data.token);
+      setIsAdmin(true);
+      setShowAdminLogin(false);
+      setAdminPassword("");
+      setAdminUsername("");
+    } catch (err) {
+      setAdminError(err.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const adminLogout = () => {
+    setIsAdmin(false);
+    setAdminToken("");
+  };
+
+  // ==========================================
+  // OWNER DASHBOARD
+  // ==========================================
+
+  if (isAdmin) {
+    return (
+      <AdminDashboard
+        token={adminToken}
+        onLogout={adminLogout}
+      />
+    );
+  }
+
+  const daily = weather?.data?.daily;
 
   return (
     <main className="app">
@@ -172,8 +277,8 @@ function App() {
         </h1>
 
         <p className="subtitle">
-          Get real-time weather conditions and a 5-day forecast for any
-          location.
+          Get real-time weather conditions and a forecast
+          for any location and date range.
         </p>
 
         <div className="search-area">
@@ -181,12 +286,27 @@ function App() {
             type="text"
             placeholder="Enter a city or location..."
             value={location}
-            onChange={(event) => setLocation(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                searchWeather();
-              }
-            }}
+            onChange={(event) =>
+              setLocation(event.target.value)
+            }
+            disabled={loading || locationLoading}
+          />
+
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) =>
+              setStartDate(event.target.value)
+            }
+            disabled={loading || locationLoading}
+          />
+
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) =>
+              setEndDate(event.target.value)
+            }
             disabled={loading || locationLoading}
           />
 
@@ -202,13 +322,15 @@ function App() {
             onClick={useCurrentLocation}
             disabled={loading || locationLoading}
           >
-            {locationLoading ? "Finding you..." : "📍 Use My Location"}
+            {locationLoading
+              ? "Finding you..."
+              : "📍 Use My Location"}
           </button>
         </div>
 
         {loading && (
           <div className="loading">
-            Fetching real-time weather data...
+            Fetching and saving weather data...
           </div>
         )}
 
@@ -227,106 +349,203 @@ function App() {
             <div>
               <p className="location-name">
                 {weather.place.name}
-                {weather.place.country
-                  ? `, ${weather.place.country}`
-                  : ""}
               </p>
 
-              <div className="temperature">
-                {Math.round(weather.data.current.temperature_2m)}
-                {weather.data.current_units.temperature_2m}
-              </div>
+              {weather.recordId && (
+                <small>
+                  Saved record #{weather.recordId}{" "}
+                  • {weather.startDate} → {weather.endDate}
+                </small>
+              )}
 
-              <p className="condition">
-                {getWeatherIcon(weather.data.current.weather_code)}{" "}
-                {getWeatherDescription(weather.data.current.weather_code)}
-              </p>
-            </div>
-
-            <div className="weather-details">
-              <div>
-                <span>Feels like</span>
-                <strong>
-                  {Math.round(
-                    weather.data.current.apparent_temperature
-                  )}
-                  °
-                </strong>
-              </div>
-
-              <div>
-                <span>Humidity</span>
-                <strong>
-                  {weather.data.current.relative_humidity_2m}%
-                </strong>
-              </div>
-
-              <div>
-                <span>Wind</span>
-                <strong>
-                  {Math.round(weather.data.current.wind_speed_10m)} km/h
-                </strong>
-              </div>
-
-              <div>
-                <span>Rain</span>
-                <strong>
-                  {weather.data.current.precipitation} mm
-                </strong>
-              </div>
-            </div>
-          </div>
-
-          <div className="forecast">
-            <h2>5-Day Forecast</h2>
-
-            <div className="forecast-grid">
-              {weather.data.daily.time.map((date, index) => (
-                <div className="forecast-card" key={date}>
-                  <p>
-                    {new Date(date).toLocaleDateString("en-US", {
-                      weekday: "short",
-                    })}
-                  </p>
-
-                  <div className="forecast-icon">
-                    {getWeatherIcon(
-                      weather.data.daily.weather_code[index]
+              {weather.data.current && (
+                <>
+                  <div className="temperature">
+                    {Math.round(
+                      weather.data.current.temperature_2m
                     )}
+                    °
                   </div>
 
-                  <strong>
-                    {Math.round(
-                      weather.data.daily.temperature_2m_max[index]
+                  <p className="condition">
+                    {getWeatherIcon(
+                      weather.data.current.weather_code
+                    )}{" "}
+                    {getWeatherDescription(
+                      weather.data.current.weather_code
                     )}
-                    °
-                  </strong>
+                  </p>
 
-                  <span>
-                    {Math.round(
-                      weather.data.daily.temperature_2m_min[index]
-                    )}
-                    °
-                  </span>
+                  <div className="weather-details">
+                    <div>
+                      <span>Feels like</span>
+                      <strong>
+                        {Math.round(
+                          weather.data.current
+                            .apparent_temperature
+                        )}
+                        °
+                      </strong>
+                    </div>
 
-                  <small>
-                    🌧️{" "}
-                    {weather.data.daily.precipitation_probability_max[
-                      index
-                    ] ?? 0}
-                    %
-                  </small>
-                </div>
-              ))}
+                    <div>
+                      <span>Humidity</span>
+                      <strong>
+                        {
+                          weather.data.current
+                            .relative_humidity_2m
+                        }
+                        %
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Wind</span>
+                      <strong>
+                        {Math.round(
+                          weather.data.current.wind_speed_10m
+                        )}{" "}
+                        km/h
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Rain</span>
+                      <strong>
+                        {weather.data.current.precipitation} mm
+                      </strong>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
+
+          {daily && (
+            <div className="forecast">
+              <h2>Forecast</h2>
+
+              <div className="forecast-grid">
+                {daily.time.map((date, index) => (
+                  <div
+                    className="forecast-card"
+                    key={date}
+                  >
+                    <p>
+                      {new Date(date).toLocaleDateString(
+                        "en-US",
+                        {
+                          weekday: "short",
+                        }
+                      )}
+                    </p>
+
+                    <div className="forecast-icon">
+                      {getWeatherIcon(
+                        daily.weather_code[index]
+                      )}
+                    </div>
+
+                    <strong>
+                      {Math.round(
+                        daily.temperature_2m_max[index]
+                      )}
+                      °
+                    </strong>
+
+                    <span>
+                      {Math.round(
+                        daily.temperature_2m_min[index]
+                      )}
+                      °
+                    </span>
+
+                    <small>
+                      🌧️{" "}
+                      {daily.precipitation_probability_max?.[
+                        index
+                      ] ?? 0}
+                      %
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       )}
 
       <footer>
         <strong>Weather Intelligence App</strong>
+
         <span>AI Engineer Technical Assessment</span>
+
+        <button
+          className="owner-button"
+          onClick={() => {
+            setAdminError("");
+            setShowAdminLogin(true);
+          }}
+        >
+          🔐 Owner
+        </button>
       </footer>
+
+      {showAdminLogin && (
+        <div className="admin-login-overlay">
+          <div className="admin-login">
+            <h2>Owner Login</h2>
+
+            <p>Private app management area</p>
+
+            <input
+              type="text"
+              placeholder="Owner username"
+              value={adminUsername}
+              onChange={(event) =>
+                setAdminUsername(event.target.value)
+              }
+            />
+
+            <input
+              type="password"
+              placeholder="Owner password"
+              value={adminPassword}
+              onChange={(event) =>
+                setAdminPassword(event.target.value)
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  adminLogin();
+                }
+              }}
+            />
+
+            {adminError && (
+              <div className="error">{adminError}</div>
+            )}
+
+            <div className="admin-login-actions">
+              <button
+                onClick={adminLogin}
+                disabled={adminLoading}
+              >
+                {adminLoading ? "Signing in..." : "Login"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowAdminLogin(false);
+                  setAdminError("");
+                  setAdminPassword("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

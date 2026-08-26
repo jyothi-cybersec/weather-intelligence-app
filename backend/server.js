@@ -1,8 +1,11 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 
 const db = require("./database/database");
 const weatherRoutes = require("./routes/weatherRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 const PORT = 5000;
@@ -27,6 +30,7 @@ app.get("/api/health", (req, res) => {
 
 // Weather CRUD routes
 app.use("/api/weather", weatherRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Handle unknown routes
 app.use((req, res) => {
