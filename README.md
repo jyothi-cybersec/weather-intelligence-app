@@ -61,7 +61,6 @@ Uses SQLite with `better-sqlite3` to store:
           │                       │
           ▼                       ▼
    Open-Meteo APIs          Saved Searches
----
 ## 🔄 Application Workflow
 User enters location
         │
