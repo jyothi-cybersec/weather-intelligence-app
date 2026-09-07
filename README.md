@@ -269,6 +269,9 @@ The final backend dependency audit reported no known vulnerabilities.
 ## 📸 Screenshots
 
 Screenshots demonstrating the application's weather dashboard, weather intelligence, owner login, and owner dashboard will be added here.
+### Owner Dashboard
+
+![Owner Dashboard](screenshots/owner-dashboard.png)
 
 ## 🔒 Security Considerations
 
